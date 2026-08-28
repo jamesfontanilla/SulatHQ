@@ -1,0 +1,10 @@
+{
+  "name": "Parcel private mail",
+  "short_name": "Parcel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#2d5bff",
+  "description": "Private custom-domain mail for James Fontanilla",
+  "icons": []
+}

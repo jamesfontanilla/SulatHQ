@@ -1,0 +1,17 @@
+name = "email-service"
+main = "worker/index.ts"
+compatibility_date = "2026-08-25"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+[observability]
+enabled = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+APP_DOMAIN = "jamesfontanilla.com"
