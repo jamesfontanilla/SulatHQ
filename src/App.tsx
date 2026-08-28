@@ -19,11 +19,11 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
   Clock3,
   Download,
   Eye,
   Flag,
-  FolderPlus,
   Forward,
   History,
   Inbox,
@@ -39,6 +39,7 @@ import {
   PenLine,
   Pin,
   Plus,
+  Printer,
   RefreshCcw,
   RotateCcw,
   Search,
@@ -59,6 +60,15 @@ import { Session } from "@supabase/supabase-js";
 import { requireSupabase, supabase } from "./lib/supabase";
 import { sanitizeEmailHtml } from "./lib/email-html";
 import { qrImageSource } from "./lib/qr";
+import { apiFetch, apiUpload, ApiError, publicApiFetch } from "./lib/api";
+import { PRODUCT_MARK, PRODUCT_NAME, PRODUCT_TAGLINE, documentTitle } from "./lib/brand";
+import { parseAppPath, replaceAppPath, SettingsTab } from "./lib/routes";
+import { parseRecipientList, serializeRecipients } from "./lib/recipients";
+import { createDebouncedRunner, draftStatusLabel, DraftUiState } from "./lib/draft-status";
+import { mailboxStatusView, mfaStatusLabel } from "./lib/domains";
+import { DomainSetup } from "./components/DomainSetup";
+import { RecipientField } from "./components/RecipientField";
+import { MessageListSkeleton, ReaderSkeleton } from "./components/Skeletons";
 
 type SystemFolder = "inbox" | "sent" | "drafts" | "archive" | "trash" | "spam";
 type ViewKey = SystemFolder | "focused" | "other" | `custom:${string}`;
@@ -144,6 +154,8 @@ type Mailbox = {
   is_default: boolean;
   can_send: boolean;
   can_receive?: boolean;
+  status?: string;
+  domain_id?: string | null;
 };
 type CustomFolder = { id: string; name: string; color: string; slug: string };
 type Label = { id: string; name: string; color: string };
@@ -381,64 +393,15 @@ function formatBytes(value: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
-class ApiError extends Error {
-  status: number;
-  payload: Record<string, unknown>;
-  constructor(message: string, status: number, payload: Record<string, unknown>) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const session = (await requireSupabase().auth.getSession()).data.session;
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(session?.access_token
-        ? { authorization: `Bearer ${session.access_token}` }
-        : {}),
-      ...(init.headers ?? {}),
-    },
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new ApiError(payload.error || `Request failed (${response.status})`, response.status, payload);
-  return payload as T;
-}
-
-async function apiUpload<T>(path: string, file: File): Promise<T> {
-  const session = (await requireSupabase().auth.getSession()).data.session;
-  const form = new FormData();
-  form.append("file", file);
-  const response = await fetch(path, {
-    method: "POST",
-    body: form,
-    headers: session?.access_token
-      ? { authorization: `Bearer ${session.access_token}` }
-      : {},
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(payload.error || `Upload failed (${response.status})`);
-  return payload as T;
-}
-
-async function publicApiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
-  return payload as T;
-}
-
-function AuthScreen() {
-  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+function AuthScreen({ initialMode = "signin" }: { initialMode?: "signin" | "signup" | "forgot" }) {
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">(initialMode);
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+  useEffect(() => {
+    document.title = documentTitle(mode === "signup" ? "Create account" : mode === "forgot" ? "Reset password" : "Sign in");
+    replaceAppPath({ kind: "auth", mode: mode === "signup" ? "signup" : mode === "forgot" ? "forgot" : "signin" });
+  }, [mode]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -481,13 +444,13 @@ function AuthScreen() {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="brand-mark">P</div>
-        <p className="eyebrow">PRIVATE MAIL / {new Date().getFullYear()}</p>
-        <h1>{mode === "forgot" ? "Get back in safely." : "Keep your address close."}</h1>
+        <div className="brand-mark" aria-hidden="true">{PRODUCT_MARK}</div>
+        <p className="eyebrow">{PRODUCT_NAME} / {new Date().getFullYear()}</p>
+        <h1>{mode === "forgot" ? "Get back in safely." : mode === "signup" ? "Create your SulatHQ account." : "Sign in to SulatHQ."}</h1>
         <p className="auth-copy">
           {mode === "forgot"
             ? "We’ll send a one-time reset link to your sign-in address or a verified recovery email."
-            : "A focused mailbox for your custom domain. Sign in to open messages across desktop and mobile."}
+            : "Add a domain you own, create addresses, and keep mail in one headquarters. Sign in to open your inbox."}
         </p>
         <form onSubmit={submit} className="auth-form">
           <label>
@@ -527,15 +490,13 @@ function AuthScreen() {
       </section>
       <aside className="auth-aside">
         <div className="aside-note">
-          <span className="status-dot" /> system ready
+          <span className="status-dot" /> {PRODUCT_NAME}
         </div>
         <p className="aside-quote">
-          “The inbox is the room where your attention either gathers or
-          scatters.”
+          A calm inbox for mail you actually own.
         </p>
         <p className="aside-meta">
-          Your messages stay private, organized, and addressed to the names you
-          chose.
+          {PRODUCT_TAGLINE}. Messages stay private, organized, and addressed to names you chose.
         </p>
       </aside>
     </main>
@@ -576,7 +537,7 @@ function PasswordResetScreen({ onComplete }: { onComplete: () => void }) {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="brand-mark">P</div>
+        <div className="brand-mark" aria-hidden="true">{PRODUCT_MARK}</div>
         <p className="eyebrow">ACCOUNT RECOVERY</p>
         <h1>Choose a new password.</h1>
         <p className="auth-copy">This link is temporary. Set a strong password, then sign in again on your other devices.</p>
@@ -588,7 +549,7 @@ function PasswordResetScreen({ onComplete }: { onComplete: () => void }) {
           {completed ? <button type="button" className="primary-button" onClick={onComplete}>Continue to mailbox</button> : <button className="primary-button" disabled={busy}>{busy ? "Updating…" : "Update password"}</button>}
         </form>
       </section>
-      <aside className="auth-aside"><div className="aside-note"><span className="status-dot" /> protected recovery</div><p className="aside-quote">One link. One new password. Back to your mailbox.</p><p className="aside-meta">Parcel never reveals whether an email address has an account.</p></aside>
+      <aside className="auth-aside"><div className="aside-note"><span className="status-dot" /> protected recovery</div><p className="aside-quote">One link. One new password. Back to your mailbox.</p><p className="aside-meta">{PRODUCT_NAME} never reveals whether an email address has an account.</p></aside>
     </main>
   );
 }
@@ -630,7 +591,7 @@ function MfaChallengeScreen({ onVerified }: { onVerified: () => void }) {
     }
   }
   return (
-    <main className="auth-shell"><section className="auth-card"><div className="brand-mark">P</div><p className="eyebrow">SECOND STEP</p><h1>Confirm it’s you.</h1><p className="auth-copy">Open your authenticator app and enter the six-digit code to continue to Parcel.</p>{factors.length > 1 && <label>Authenticator<select value={factorId} onChange={(event) => setFactorId(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.friendly_name || "Authenticator app"}</option>)}</select></label>}<form onSubmit={submit} className="auth-form"><label>Authentication code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={busy || !factorId}>{busy ? "Checking…" : "Verify and open mailbox"}</button></form><button className="text-button" onClick={() => void requireSupabase().auth.signOut()}>Sign out</button></section><aside className="auth-aside"><div className="aside-note"><span className="status-dot" /> two-step verification</div><p className="aside-quote">Your password is only the first lock.</p><p className="aside-meta">Keep your authenticator app available. Recovery email is for resetting access, not a replacement for the second factor.</p></aside></main>
+    <main className="auth-shell"><section className="auth-card"><div className="brand-mark" aria-hidden="true">{PRODUCT_MARK}</div><p className="eyebrow">SECOND STEP</p><h1>Confirm it’s you.</h1><p className="auth-copy">Open your authenticator app and enter the six-digit code to continue to {PRODUCT_NAME}.</p>{factors.length > 1 && <label>Authenticator<select value={factorId} onChange={(event) => setFactorId(event.target.value)}>{factors.map((factor) => <option key={factor.id} value={factor.id}>{factor.friendly_name || "Authenticator app"}</option>)}</select></label>}<form onSubmit={submit} className="auth-form"><label>Authentication code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={busy || !factorId}>{busy ? "Checking…" : "Verify and open mailbox"}</button></form><button className="text-button" onClick={() => void requireSupabase().auth.signOut()}>Sign out</button></section><aside className="auth-aside"><div className="aside-note"><span className="status-dot" /> two-step verification</div><p className="aside-quote">Your password is only the first lock.</p><p className="aside-meta">Keep your authenticator app available. Recovery email is for resetting access, not a replacement for the second factor.</p></aside></main>
   );
 }
 
@@ -652,9 +613,9 @@ function Compose({
   const defaultMailbox =
     mailboxes.find((mailbox) => mailbox.is_default) || mailboxes[0];
   const [fromAddress, setFromAddress] = useState(defaultMailbox?.address || "");
-  const [to, setTo] = useState(seed?.to || "");
-  const [cc, setCc] = useState(seed?.cc || "");
-  const [bcc, setBcc] = useState("");
+  const [toChips, setToChips] = useState(() => parseRecipientList(seed?.to || ""));
+  const [ccChips, setCcChips] = useState(() => parseRecipientList(seed?.cc || ""));
+  const [bccChips, setBccChips] = useState(() => parseRecipientList(""));
   const [subject, setSubject] = useState(seed?.subject || "");
   const [text, setText] = useState(seed?.text || "");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -669,7 +630,7 @@ function Compose({
   >([]);
   const [signatureId, setSignatureId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [draftState, setDraftState] = useState<DraftUiState>(seed?.draftId ? "saved" : "new");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [uploading, setUploading] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -681,9 +642,14 @@ function Compose({
   const [warnings, setWarnings] = useState<Array<{ code: string; title: string; detail: string }>>([]);
   const idempotencyKeyRef = useRef(crypto.randomUUID());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef(createDebouncedRunner(800));
+  const to = serializeRecipients(toChips);
+  const cc = serializeRecipients(ccChips);
+  const bcc = serializeRecipients(bccChips);
+  const dirty = Boolean(to.trim() || cc.trim() || bcc.trim() || subject.trim() || text.trim() || attachments.length);
   const saveDraft = useCallback(async () => {
     if (!fromAddress || (!to.trim() && !subject.trim() && !text.trim())) return;
-    setSaving(true);
+    setDraftState("saving");
     try {
       const saved = await apiFetch<Message>("/api/drafts", {
         method: "POST",
@@ -699,20 +665,34 @@ function Compose({
       });
       if (saved?.id) setDraftId(saved.id);
       setLastSavedAt(new Date());
+      setDraftState("saved");
     } catch (draftError) {
+      setDraftState("save_failed");
       setError(
         draftError instanceof Error
           ? draftError.message
           : "Draft could not be saved",
       );
-    } finally {
-      setSaving(false);
     }
   }, [bcc, cc, draftId, fromAddress, subject, text, to]);
   useEffect(() => {
-    const timer = window.setTimeout(() => void saveDraft(), 3000);
-    return () => window.clearTimeout(timer);
+    debounceRef.current.schedule(() => void saveDraft());
+    return () => debounceRef.current.cancel();
   }, [saveDraft]);
+  function requestClose() {
+    if (dirty && draftState !== "sent") {
+      const confirmed = window.confirm("Discard this draft? Unsaved changes will be lost.");
+      if (!confirmed) return;
+    }
+    onClose();
+  }
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") requestClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   function chooseSignature(id: string) {
     setSignatureId(id);
     const signature = signatures.find((item) => item.id === id);
@@ -769,15 +749,16 @@ function Compose({
     await uploadFiles(Array.from(event.dataTransfer.files));
   }
   function draftStatus() {
-    if (saving) return "Saving draft…";
-    if (uploading) return `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…`;
-    if (lastSavedAt) return `Saved ${lastSavedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-    if (draftId) return "Draft saved";
-    return "Draft saves automatically";
+    return draftStatusLabel(draftState, lastSavedAt);
   }
-  async function send(event: FormEvent) {
-    event.preventDefault();
+  async function send(event?: FormEvent) {
+    event?.preventDefault();
+    if (toChips.some((chip) => !chip.valid) || !toChips.length) {
+      setError("Add at least one valid recipient.");
+      return;
+    }
     setBusy(true);
+    setDraftState("sending");
     setError("");
     try {
       await apiFetch("/api/send", {
@@ -799,13 +780,16 @@ function Compose({
           attachments,
         }),
       });
+      setDraftState("sent");
       onSent();
       onClose();
     } catch (sendError) {
       if (sendError instanceof ApiError && Array.isArray(sendError.payload.warnings)) {
         setWarnings(sendError.payload.warnings as Array<{ code: string; title: string; detail: string }>);
         setError("");
+        setDraftState("saved");
       } else {
+        setDraftState("send_failed");
         setError(
           sendError instanceof Error
             ? sendError.message
@@ -833,7 +817,7 @@ function Compose({
         <button
           type="button"
           className="icon-button"
-          onClick={onClose}
+          onClick={requestClose}
           aria-label="Close draft"
           title="Close draft"
         >
@@ -847,13 +831,16 @@ function Compose({
       <form
         className={`compose-card${isExpanded ? " compose-card-expanded" : ""}`}
         onSubmit={send}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="compose-title"
       >
         <div className="compose-head">
           <div>
             <p className="eyebrow">
               {seed?.to ? "REPLY / FORWARD" : "NEW MESSAGE"}
             </p>
-            <h2>{seed?.to ? "Continue the thread" : "New message"}</h2>
+            <h2 id="compose-title">{seed?.to ? "Continue the thread" : "New message"}</h2>
             <span className="compose-subtitle">
               {seed?.to ? "Your reply stays connected to this conversation." : "A private message from your mailbox."}
             </span>
@@ -880,7 +867,7 @@ function Compose({
             <button
               type="button"
               className="icon-button"
-              onClick={onClose}
+              onClick={requestClose}
               aria-label="Close draft"
               title="Close draft"
             >
@@ -915,40 +902,17 @@ function Compose({
               {showCcBcc ? "Hide Cc/Bcc" : "Cc / Bcc"}
             </button>
           </div>
-          <label>
-            To
-            <input
-              required
-              name="to"
-              type="email"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-              placeholder="recipient@example.com…"
-              autoComplete="email"
-            />
-          </label>
+          <RecipientField
+            label="To"
+            chips={toChips}
+            onChange={setToChips}
+            placeholder="recipient@example.com"
+            required
+          />
           {showCcBcc && (
             <div className="compose-recipient-grid">
-              <label>
-                Cc
-                <input
-                  name="cc"
-                  value={cc}
-                  onChange={(event) => setCc(event.target.value)}
-                  placeholder="Optional…"
-                  autoComplete="email"
-                />
-              </label>
-              <label>
-                Bcc
-                <input
-                  name="bcc"
-                  value={bcc}
-                  onChange={(event) => setBcc(event.target.value)}
-                  placeholder="Optional…"
-                  autoComplete="email"
-                />
-              </label>
+              <RecipientField label="Cc" chips={ccChips} onChange={setCcChips} placeholder="Optional" />
+              <RecipientField label="Bcc" chips={bccChips} onChange={setBccChips} placeholder="Optional" />
             </div>
           )}
           <label>
@@ -1058,16 +1022,28 @@ function Compose({
             </span>
           ))}
         </div>
-        {error && <div className="form-error compose-error">{error}</div>}
+        {error && <div className="form-error compose-error" role="alert">{error}</div>}
         <div className="compose-foot">
           <span className="compose-hint" aria-live="polite">
-            <span className={`save-dot${saving ? " is-saving" : ""}`} />
-            {draftStatus()}
+            <span className={`save-dot${draftState === "saving" || draftState === "sending" ? " is-saving" : ""}`} />
+            {uploading ? `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…` : draftStatus()}
           </span>
-          <button className="primary-button" disabled={busy || uploading > 0}>
-            <Send size={15} />{" "}
-            {busy ? "Sending…" : scheduledAt ? "Schedule send" : "Send"}
-          </button>
+          <div className="compose-foot-actions">
+            {draftState === "send_failed" && (
+              <button type="button" className="secondary-button" onClick={() => void send()} disabled={busy || uploading > 0}>
+                Retry send
+              </button>
+            )}
+            {draftState === "save_failed" && (
+              <button type="button" className="secondary-button" onClick={() => void saveDraft()} disabled={busy}>
+                Retry save
+              </button>
+            )}
+            <button className="primary-button" disabled={busy || uploading > 0}>
+              <Send size={15} />{" "}
+              {busy ? "Sending…" : scheduledAt ? "Schedule send" : "Send"}
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -1125,9 +1101,12 @@ function SettingsPanel({
   mailboxes,
   rules,
   senderPolicies,
+  signatures,
+  initialTab = "appearance",
   onClose,
   onChanged,
   onOpenMessage,
+  onOpenInbox,
 }: {
   session: Session;
   settings: AppSettings;
@@ -1136,20 +1115,14 @@ function SettingsPanel({
   mailboxes: Mailbox[];
   rules: Rule[];
   senderPolicies: SenderPolicy[];
+  signatures: Signature[];
+  initialTab?: SettingsTab;
   onClose: () => void;
   onChanged: () => void;
   onOpenMessage: (message: Message) => void;
+  onOpenInbox: () => void;
 }) {
-  const [tab, setTab] = useState<
-    | "appearance"
-    | "security"
-    | "organize"
-    | "contacts"
-    | "spam"
-    | "automation"
-    | "mailboxes"
-    | "integrations"
-  >("appearance");
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [folderName, setFolderName] = useState("");
   const [labelName, setLabelName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -1273,7 +1246,7 @@ function SettingsPanel({
     }
   }
   async function applyPolicyToExisting(policy: SenderPolicy) {
-    if (!window.confirm(`Apply this decision to matching messages already in Parcel? Up to 500 messages will be reviewed.`)) return;
+    if (!window.confirm(`Apply this decision to matching messages already in SulatHQ? Up to 500 messages will be reviewed.`)) return;
     try {
       const result = await apiFetch<{ matched: number; changed: number; capped?: boolean }>(`/api/sender-policies/${policy.id}/apply-existing`, { method: "POST", body: JSON.stringify({ confirm: true }) });
       setNotice(`${result.changed} existing message${result.changed === 1 ? "" : "s"} updated${result.capped ? " · limited to 500" : ""}`);
@@ -1667,7 +1640,7 @@ function SettingsPanel({
         if (discarded.error) throw discarded.error;
         setMfaPendingFactor(null);
       }
-      let result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: "Parcel authenticator" });
+      let result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: `${PRODUCT_NAME} authenticator` });
       if (result.error && /friendly name.*already exists/i.test(result.error.message)) {
         const retryFactors = await client.auth.mfa.listFactors();
         if (retryFactors.error) throw retryFactors.error;
@@ -1675,7 +1648,7 @@ function SettingsPanel({
         if (retryPending) {
           const discarded = await client.auth.mfa.unenroll({ factorId: retryPending.id });
           if (discarded.error) throw discarded.error;
-          result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: "Parcel authenticator" });
+          result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: `${PRODUCT_NAME} authenticator` });
         }
       }
       if (result.error) throw result.error;
@@ -1779,13 +1752,26 @@ function SettingsPanel({
     if (tab === "security") void loadSecurity();
     if (tab === "spam") void loadScreeningQueue();
   }, [tab]);
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+  useEffect(() => {
+    replaceAppPath({ kind: "settings", tab });
+  }, [tab]);
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
-    <div className="modal-backdrop">
-      <section className="settings-panel">
+    <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="panel-title">
           <div>
-            <p className="eyebrow">MAILBOX SETTINGS</p>
-            <h2>Settings & organization</h2>
+            <p className="eyebrow">{PRODUCT_NAME} SETTINGS</p>
+            <h2 id="settings-title">Settings</h2>
           </div>
           <button
             className="icon-button"
@@ -1799,12 +1785,16 @@ function SettingsPanel({
           {(
             [
               ["appearance", "Appearance"],
-              ["security", "Security & access"],
+              ["profile", "Profile"],
+              ["domains", "Domains"],
+              ["mailboxes", "Mailboxes"],
+              ["signatures", "Signatures"],
+              ["security", "Security"],
+              ["sessions", "Sessions"],
               ["organize", "Folders & labels"],
               ["contacts", "Contacts"],
-              ["spam", "Spam & trust"],
-              ["automation", "Rules & signatures"],
-              ["mailboxes", "Mailboxes"],
+              ["spam", "Spam"],
+              ["automation", "Rules"],
               ["integrations", "Integrations"],
             ] as const
           ).map(([key, label]) => (
@@ -1835,9 +1825,9 @@ function SettingsPanel({
               <div className="setting-card-head">
                 <div>
                   <h3>Two-step verification</h3>
-                  <p>Use an authenticator app after your password. Parcel will require it at every new sign-in.</p>
+                  <p>Use an authenticator app after your password. SulatHQ will require it at every new sign-in.</p>
                 </div>
-                <span className={`security-status ${mfaFactors.length ? "enabled" : mfaPendingFactor ? "pending" : ""}`}>{mfaFactors.length ? "On" : mfaPendingFactor ? "Setup paused" : "Off"}</span>
+                <span className={`security-status ${mfaFactors.length ? "enabled" : mfaSetup || mfaPendingFactor ? "pending" : ""}`}>{mfaStatusLabel(mfaFactors.length, Boolean(mfaPendingFactor), Boolean(mfaSetup))}</span>
               </div>
               {mfaPendingFactor && !mfaSetup && <div className="mfa-pending"><strong>Previous authenticator setup found</strong><small>You closed setup before verifying the code. Starting again will replace that unfinished factor with a fresh QR code.</small></div>}
               {mfaFactors.length === 0 && !mfaSetup && <button className="secondary-button" onClick={() => void beginMfaSetup()} disabled={securityBusy}><ShieldAlert size={15} /> {securityBusy ? "Generating QR code…" : mfaPendingFactor ? "Generate a new QR code" : "Set up authenticator app"}</button>}
@@ -1866,7 +1856,7 @@ function SettingsPanel({
             </div>
             <div className="setting-card">
               <h3>How recovery works</h3>
-              <p>Parcel keeps your recovery addresses separate from your sign-in email. A recovery request never reveals whether an account exists, and every reset link is one-time.</p>
+              <p>SulatHQ keeps your recovery addresses separate from your sign-in email. A recovery request never reveals whether an account exists, and every reset link is one-time.</p>
               <small className="field-help">Keep at least one recovery address available and store your authenticator app on a device you control. Recovery email can reset access; it cannot bypass an enabled authenticator challenge.</small>
             </div>
           </div>
@@ -2134,7 +2124,7 @@ function SettingsPanel({
             </div>
             <div className="setting-card spam-explainer-card">
               <h3>How screening works</h3>
-              <p>Parcel combines authentication alignment, sender history, user feedback, links, risky requests, and attachments.</p>
+              <p>SulatHQ combines authentication alignment, sender history, user feedback, links, risky requests, and attachments.</p>
               <div className="screening-legend">
                 <span><i className="legend-dot safe" /> Inbox</span>
                 <span><i className="legend-dot review" /> Warning</span>
@@ -2484,8 +2474,7 @@ function SettingsPanel({
             <div className="setting-card">
               <h3>Add an address</h3>
               <p>
-                Each address can send through Brevo and receive through
-                Cloudflare routing.
+                Create an address on a domain you already verified. An alias is not a separate mailbox unless it has its own storage.
               </p>
               <input
                 value={mailboxName}
@@ -2506,14 +2495,18 @@ function SettingsPanel({
               </button>
             </div>
             <div className="setting-card">
-              <h3>Connected addresses</h3>
-              {mailboxes.map((item) => (
+              <h3>Addresses</h3>
+              {mailboxes.map((item) => {
+                const view = mailboxStatusView(item);
+                return (
                 <div className="settings-item mailbox-setting" key={item.id}>
                   <div>
                     <strong>{item.address}</strong>
                     <small>
                       {item.display_name}
-                      {item.is_default ? " · default" : ""}
+                      {item.is_default ? " · default From" : ""}
+                      {` · ${view.domain_name || "no domain"}`}
+                      {` · ${view.status === "active" ? "Active" : view.disabled ? "Disabled" : "Configuration required"}`}
                     </small>
                   </div>
                   <div className="choice-row">
@@ -2541,12 +2534,71 @@ function SettingsPanel({
                           void updateMailbox(item, { is_default: true })
                         }
                       >
-                        Default
+                        Default From
                       </button>
                     )}
+                    <button
+                      onClick={() =>
+                        void updateMailbox(item, { can_send: false, can_receive: false, status: "disabled" })
+                      }
+                    >
+                      Disable
+                    </button>
+                    <button onClick={onOpenInbox}>Open inbox</button>
+                  </div>
+                </div>
+              );})}
+            </div>
+          </div>
+        )}
+        {tab === "profile" && (
+          <div className="settings-grid">
+            <div className="setting-card">
+              <h3>Profile</h3>
+              <p>This is the account that owns your domains and mailboxes.</p>
+              <div className="security-email">{session.user.email}</div>
+              <small className="field-help">Display names for outgoing mail are set on each address, not on this account.</small>
+            </div>
+          </div>
+        )}
+        {tab === "domains" && (
+          <DomainSetup mailboxCount={mailboxes.length} compact onOpenInbox={onOpenInbox} />
+        )}
+        {tab === "signatures" && (
+          <div className="settings-grid">
+            <div className="setting-card">
+              <h3>New signature</h3>
+              <p>Inserted into compose when you choose it.</p>
+              <input value={signatureName} onChange={(event) => setSignatureName(event.target.value)} placeholder="Signature name" />
+              <textarea value={signatureText} onChange={(event) => setSignatureText(event.target.value)} rows={4} placeholder="Kind regards" />
+              <button className="secondary-button" onClick={() => void createSignature()}><Plus size={15} /> Save signature</button>
+            </div>
+            <div className="setting-card">
+              <h3>Saved signatures</h3>
+              {signatures.length === 0 && <div className="rule-empty">No signatures yet.</div>}
+              {signatures.map((signature) => (
+                <div className="settings-item" key={signature.id}>
+                  <div>
+                    <strong>{signature.name}</strong>
+                    <small>{signature.is_default ? "Default" : "Available in compose"}</small>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        {tab === "sessions" && (
+          <div className="settings-grid">
+            <div className="setting-card">
+              <h3>Signed-in sessions</h3>
+              <p>Session listing is waiting on the platform API. This device is signed in now.</p>
+              <div className="settings-item">
+                <div>
+                  <strong>This browser</strong>
+                  <small>{session.user.email} · current session</small>
+                </div>
+              </div>
+              <small className="field-help">Revoking other sessions will be available when GET /api/sessions is published.</small>
             </div>
           </div>
         )}
@@ -2792,6 +2844,8 @@ function MailboxApp({ session }: { session: Session }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -2927,6 +2981,9 @@ function MailboxApp({ session }: { session: Session }) {
     setDetailLoading(false);
     clearListSelection();
     setMobileNav(false);
+    if (target === "inbox" || target === "sent" || target === "drafts" || target === "archive" || target === "trash" || target === "spam") {
+      replaceAppPath({ kind: "mail", folder: target });
+    }
   }
   function toggleMessageSelection(id: string) {
     if (selectAllResults) {
@@ -3079,6 +3136,37 @@ function MailboxApp({ session }: { session: Session }) {
     void loadWorkspace();
   }, [loadMeta, loadWorkspace]);
   useEffect(() => {
+    const location = parseAppPath(window.location.pathname, window.location.hash);
+    if (location.kind === "settings") {
+      setSettingsTab(location.tab);
+      setSettingsOpen(true);
+    } else if (location.kind === "onboarding") {
+      setOnboardingOpen(true);
+    } else if (location.kind === "workspace") {
+      setView(location.view === "calendar" ? "calendar" : "tasks");
+    } else if (location.kind === "mail") {
+      if (location.folder !== "search" && !location.folder.startsWith("custom")) {
+        setFolder(location.folder as ViewKey);
+      }
+    }
+    function onHash() {
+      const next = parseAppPath(window.location.pathname, window.location.hash);
+      if (next.kind === "settings") {
+        setSettingsTab(next.tab);
+        setSettingsOpen(true);
+        setOnboardingOpen(false);
+      } else if (next.kind === "onboarding") {
+        setOnboardingOpen(true);
+        setSettingsOpen(false);
+      }
+    }
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  useEffect(() => {
+    document.title = documentTitle(onboardingOpen ? "Domain setup" : settingsOpen ? "Settings" : "Inbox");
+  }, [onboardingOpen, settingsOpen]);
+  useEffect(() => {
     if (
       settings.desktop_notifications &&
       typeof Notification !== "undefined" &&
@@ -3102,7 +3190,7 @@ function MailboxApp({ session }: { session: Session }) {
         .forEach(
           (message) =>
             new Notification(message.subject || "New message", {
-              body: `${message.from_address}: ${message.snippet || "Open Parcel to read it."}`,
+              body: `${message.from_address}: ${message.snippet || "Open SulatHQ to read it."}`,
             }),
         );
     }
@@ -3153,6 +3241,11 @@ function MailboxApp({ session }: { session: Session }) {
     if (["inbox", "sent", "drafts", "archive", "trash", "spam"].includes(message.folder)) setFolder(message.folder as ViewKey);
     setSelectedId(message.id);
     setSelected(message);
+    if (!message.is_read) {
+      setMessages((current) =>
+        current.map((item) => (item.id === message.id ? { ...item, is_read: true } : item)),
+      );
+    }
     setDetailLoading(true);
     setError("");
     setShowAllThreadMessages(false);
@@ -3169,16 +3262,17 @@ function MailboxApp({ session }: { session: Session }) {
       if (detailRequestRef.current !== requestId) return;
       setThreadMessages(thread);
       if (!message.is_read) {
-        await apiFetch(`/api/mail/${message.id}`, {
-          method: "POST",
-          body: JSON.stringify({ isRead: true }),
-        });
-        if (detailRequestRef.current !== requestId) return;
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === message.id ? { ...item, is_read: true } : item,
-          ),
-        );
+        try {
+          await apiFetch(`/api/mail/${message.id}`, {
+            method: "POST",
+            body: JSON.stringify({ isRead: true }),
+          });
+        } catch {
+          if (detailRequestRef.current !== requestId) return;
+          setMessages((current) =>
+            current.map((item) => (item.id === message.id ? { ...item, is_read: false } : item)),
+          );
+        }
       }
     } catch (openError) {
       if (detailRequestRef.current !== requestId) return;
@@ -3363,6 +3457,16 @@ function MailboxApp({ session }: { session: Session }) {
       setError(cancelError instanceof Error ? cancelError.message : "Send could not be cancelled");
     }
   }
+  function openSettings(tab: SettingsTab = "appearance") {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+    setOnboardingOpen(false);
+    replaceAppPath({ kind: "settings", tab });
+  }
+  function closeSettings() {
+    setSettingsOpen(false);
+    replaceAppPath({ kind: "mail", folder: "inbox" });
+  }
   function openCompose(seed?: ComposeSeed) {
     setComposeSeed(seed);
     setComposeOpen(true);
@@ -3429,7 +3533,7 @@ function MailboxApp({ session }: { session: Session }) {
   const selectedHtml = selected ? sanitizeEmailHtml(selected.html_body) : "";
   return (
     <main
-      className={`app-shell theme-${settings.theme || "light"} density-${settings.density || "comfortable"}`}
+      className={`app-shell theme-${settings.theme || "light"} density-${settings.density || "comfortable"}${selected ? " showing-reader" : " showing-list"}`}
     >
       <header className="mobile-topbar">
         <button
@@ -3440,7 +3544,7 @@ function MailboxApp({ session }: { session: Session }) {
           <Menu size={19} />
         </button>
         <div className="mini-brand">
-          <span>P</span> Parcel
+          <span>{PRODUCT_MARK}</span> {PRODUCT_NAME}
         </div>
         <button
           className="icon-button"
@@ -3453,10 +3557,10 @@ function MailboxApp({ session }: { session: Session }) {
       <aside className={`sidebar ${mobileNav ? "mobile-visible" : ""}`}>
         <div className="sidebar-top">
           <div className="brand-lockup">
-            <div className="brand-mark small">P</div>
+            <div className="brand-mark small">{PRODUCT_MARK}</div>
             <div>
-              <strong>Parcel</strong>
-              <span>private mail</span>
+              <strong>{PRODUCT_NAME}</strong>
+              <span>{PRODUCT_TAGLINE}</span>
             </div>
           </div>
           <button
@@ -3574,6 +3678,24 @@ function MailboxApp({ session }: { session: Session }) {
         <div className="sidebar-divider" />
         <nav className="folder-nav secondary-nav">
           <button
+            className="folder-link"
+            onClick={() => {
+              setOnboardingOpen(true);
+              setMobileNav(false);
+              replaceAppPath({ kind: "onboarding" });
+            }}
+          >
+            <History size={17} />
+            <span>Domain setup</span>
+          </button>
+          <button
+            className="folder-link"
+            onClick={() => openSettings()}
+          >
+            <Settings2 size={17} />
+            <span>Settings</span>
+          </button>
+          <button
             className={
               view === "calendar" ? "active folder-link" : "folder-link"
             }
@@ -3640,7 +3762,7 @@ function MailboxApp({ session }: { session: Session }) {
                 </button>
                 <button
                   className="icon-button"
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => openSettings()}
                   aria-label="Settings"
                 >
                   <Settings2 size={17} />
@@ -3687,7 +3809,12 @@ function MailboxApp({ session }: { session: Session }) {
               <span className="sync-dot" />
               {liveState === "live" ? "Live updates" : liveState === "connecting" ? "Connecting to live updates…" : liveState === "reconnecting" ? "Reconnecting…" : "Polling for updates"}
             </div>
-            {error && <div className="inline-error">{error}</div>}
+            {error && (
+              <div className="inline-error" role="alert">
+                <span>{error}</span>
+                <button className="text-button" onClick={() => void loadMessages(folder, true)}>Retry</button>
+              </div>
+            )}
             {!loading && messages.length > 0 && (
               <div className="selection-bar" aria-label="Message selection controls">
                 <label>
@@ -3758,31 +3885,34 @@ function MailboxApp({ session }: { session: Session }) {
               </div>
             )}
             <div className="message-list">
-              {loading ? (
-                <div className="list-empty">
-                  <div className="pulse-dot" />
-                  <p>Gathering your mail…</p>
-                </div>
+              {loading && messages.length === 0 ? (
+                <MessageListSkeleton />
+              ) : loading && messages.length > 0 ? (
+                <div className="sync-status" role="status">Checking for new mail…</div>
               ) : messages.length === 0 ? (
                 <div className="list-empty">
                   <div className="empty-glyph">
                     <Mail size={22} />
                   </div>
                   <h3>
-                    {folder === "trash"
+                    {query.trim()
+                      ? "No matching messages"
+                      : folder === "trash"
                       ? "Trash is empty"
                       : currentLabel === "Inbox"
-                      ? "A quiet inbox"
+                      ? "Inbox is empty"
                       : `No mail in ${currentLabel.toLowerCase()}`}
                   </h3>
                   <p>
-                    {folder === "trash"
+                    {query.trim()
+                      ? "Try a different search or clear filters."
+                      : folder === "trash"
                       ? "Deleted messages stay here until you restore or permanently remove them."
-                      : "New messages and saved rules will appear here."}
+                      : "New messages appear here after they are stored in SulatHQ."}
                   </p>
-                  {folder !== "trash" && (
+                  {folder !== "trash" && !query.trim() && (
                     <button className="text-button" onClick={() => openCompose()}>
-                      Write the first message
+                      Compose
                     </button>
                   )}
                 </div>
@@ -3858,6 +3988,17 @@ function MailboxApp({ session }: { session: Session }) {
                         fill="currentColor"
                       />
                     )}
+                    {message.is_flagged && (
+                      <Flag className="row-star" size={15} aria-label="Flagged" />
+                    )}
+                    <div className="row-hover-actions">
+                      <button type="button" className="icon-button" aria-label="Archive" title="Archive" onClick={(event) => { event.stopPropagation(); void apiFetch(`/api/mail/${message.id}`, { method: "POST", body: JSON.stringify({ folder: "archive" })}).then(() => loadMessages(folder, false)); }}>
+                        <Archive size={15} />
+                      </button>
+                      <button type="button" className="icon-button" aria-label="Delete" title="Delete" onClick={(event) => { event.stopPropagation(); void apiFetch(`/api/mail/${message.id}`, { method: "POST", body: JSON.stringify({ folder: "trash" })}).then(() => loadMessages(folder, false)); }}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -3875,12 +4016,19 @@ function MailboxApp({ session }: { session: Session }) {
                   <Mail size={30} />
                 </div>
                 <p>Select a message to read it here.</p>
-                <span>Your inbox, without the noise.</span>
+                <span>Inbox, Sent, Drafts, Archive, Trash, and Spam stay in this pane.</span>
               </div>
             ) : (
               <article key={selected.id} className={`message-detail ${detailLoading ? "is-detail-loading" : ""}`} aria-busy={detailLoading}>
                 <div className="detail-head">
                   <div>
+                    <button
+                      className="reader-back"
+                      onClick={() => clearMessageSelection()}
+                      aria-label="Back to message list"
+                    >
+                      <ChevronLeft size={18} /> Back
+                    </button>
                     <p className="eyebrow">{selected.direction === "inbound" ? "RECEIVED" : "SENT"}</p>
                     <h2>{selected.subject || "(no subject)"}</h2>
                     <div className="detail-meta">
@@ -3965,11 +4113,7 @@ function MailboxApp({ session }: { session: Session }) {
                     )}
                   </div>
                 </div>
-                {detailLoading && (
-                  <div className="detail-loading" role="status" aria-live="polite">
-                    <span className="detail-loading-dot" /> Updating message…
-                  </div>
-                )}
+                {detailLoading && !selectedHtml && <ReaderSkeleton />}
                 {selected.folder === "trash" && (
                   <div className="trash-notice" role="status">
                     <Trash2 size={15} />
@@ -4019,7 +4163,7 @@ function MailboxApp({ session }: { session: Session }) {
                     </div>
                   </div>
                 )}
-                {trustLensOpen && <div className="trust-lens">
+                {showMessageDetails && trustLensOpen && <div className="trust-lens">
                   <button className="trust-lens-toggle" onClick={() => void toggleTrustLens()} aria-expanded={trustLensOpen}>
                     <span className="trust-lens-title"><ShieldAlert size={15} /><span><strong>Trust Lens</strong><small> Authentication and sender evidence</small></span></span>
                     <span>{trustLensBusy ? "Loading…" : trustLensOpen ? "Hide" : "Inspect"} <ChevronDown size={14} className={trustLensOpen ? "rotated" : ""} /></span>
@@ -4096,7 +4240,7 @@ function MailboxApp({ session }: { session: Session }) {
                 {threadMessages.length > 1 && (
                   <div className="conversation-section">
                     <div className="conversation-head">
-                      <p className="eyebrow">CONVERSATION</p>
+                      <p className="eyebrow">Messages in this conversation</p>
                       <span>{threadMessages.length} messages</span>
                     </div>
                     {!showAllThreadMessages && (
@@ -4160,6 +4304,12 @@ function MailboxApp({ session }: { session: Session }) {
                       >
                         <Users size={15} /> Reply all
                       </button>
+                      <button
+                        className="secondary-button detail-quick-action"
+                        onClick={() => openCompose({ to: selected.to_addresses?.[0], subject: `Fwd: ${selected.subject}`, text: `\n\n— Forwarded message —\n${selected.text_body || selected.snippet}`, threadId: selected.thread_id })}
+                      >
+                        <Forward size={15} /> Forward
+                      </button>
                       <div className="more-actions">
                         <button
                           className="secondary-button"
@@ -4171,11 +4321,17 @@ function MailboxApp({ session }: { session: Session }) {
                         </button>
                         {showMoreActions && (
                           <div className="action-menu" role="menu">
-                            <button role="menuitem" onClick={() => openCompose({ to: selected.to_addresses?.[0], subject: `Fwd: ${selected.subject}`, text: `\n\n— Forwarded message —\n${selected.text_body || selected.snippet}` })}>
-                              <Forward size={15} /> Forward
+                            <button role="menuitem" onClick={() => { setShowMoreActions(false); setShowMessageDetails(true); void toggleTrustLens(); }}>
+                              <ShieldAlert size={15} /> Security details
                             </button>
-                            <button role="menuitem" onClick={() => { setShowMoreActions(false); void toggleTrustLens(); }}>
-                              <ShieldAlert size={15} /> {trustLensOpen ? "Hide trust details" : "Inspect trust details"}
+                            <button role="menuitem" onClick={() => { setShowMoreActions(false); window.print(); }}>
+                              <Printer size={15} /> Print
+                            </button>
+                            <button role="menuitem" onClick={() => { setShowMoreActions(false); void apiFetch("/api/sender-policies", { method: "POST", body: JSON.stringify({ matchType: "address", matchValue: selected.from_address, action: "spam" })}).then(() => setError("")).catch((blockError) => setError(blockError instanceof Error ? blockError.message : "Could not block sender")); }}>
+                              <ShieldAlert size={15} /> Block sender
+                            </button>
+                            <button role="menuitem" onClick={() => void mutateMessage({ folder: "archive" })}>
+                              <Archive size={15} /> Move to Archive
                             </button>
                             <button role="menuitem" onClick={() => void mutateMessage({ isRead: false })}>
                               <Eye size={15} /> Mark unread
@@ -4239,6 +4395,26 @@ function MailboxApp({ session }: { session: Session }) {
           }}
         />
       )}
+      {onboardingOpen && (
+        <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) { setOnboardingOpen(false); replaceAppPath({ kind: "mail", folder: "inbox" }); } }}>
+          <section className="settings-panel onboarding-panel" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">{PRODUCT_NAME}</p>
+                <h2 id="onboarding-title">Set up your domain</h2>
+              </div>
+              <button className="icon-button" onClick={() => { setOnboardingOpen(false); replaceAppPath({ kind: "mail", folder: "inbox" }); }} aria-label="Close domain setup"><X size={18} /></button>
+            </div>
+            <DomainSetup
+              mailboxCount={mailboxes.length}
+              onOpenInbox={() => {
+                setOnboardingOpen(false);
+                openMailFolder("inbox");
+              }}
+            />
+          </section>
+        </div>
+      )}
       {settingsOpen && (
         <SettingsPanel
           session={session}
@@ -4248,7 +4424,13 @@ function MailboxApp({ session }: { session: Session }) {
           mailboxes={mailboxes}
           rules={rules}
           senderPolicies={senderPolicies}
-          onClose={() => setSettingsOpen(false)}
+          signatures={signatures}
+          initialTab={settingsTab}
+          onClose={closeSettings}
+          onOpenInbox={() => {
+            closeSettings();
+            openMailFolder("inbox");
+          }}
           onOpenMessage={(message) => void openMessage(message)}
           onChanged={() => {
             void loadMeta();
@@ -4301,20 +4483,24 @@ export default function App() {
   if (!ready)
     return (
       <div className="loading-screen">
-        <div className="brand-mark">P</div>
-        <p>Loading Parcel…</p>
+        <div className="brand-mark" aria-hidden="true">{PRODUCT_MARK}</div>
+        <p>Loading {PRODUCT_NAME}…</p>
       </div>
     );
   if (!supabase)
     return (
       <div className="loading-screen">
-        <div className="brand-mark">P</div>
+        <div className="brand-mark" aria-hidden="true">{PRODUCT_MARK}</div>
         <h2>Supabase is not configured</h2>
         <p>Add the public project URL and key to the deployment environment.</p>
       </div>
     );
   if (recovering) return <PasswordResetScreen onComplete={() => setRecovering(false)} />;
-  if (!session) return <AuthScreen />;
+  if (!session) {
+    const location = parseAppPath(window.location.pathname, window.location.hash);
+    const mode = location.kind === "auth" ? location.mode : "signin";
+    return <AuthScreen initialMode={mode} />;
+  }
   if (mfaRequired) return <MfaChallengeScreen onVerified={() => setMfaRequired(false)} />;
   return <MailboxApp session={session} />;
 }

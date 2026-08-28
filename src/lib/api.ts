@@ -1,0 +1,56 @@
+import { requireSupabase } from "./supabase";
+
+export class ApiError extends Error {
+  status: number;
+  payload: Record<string, unknown>;
+  constructor(message: string, status: number, payload: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const session = (await requireSupabase().auth.getSession()).data.session;
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {}),
+      ...(init.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok)
+    throw new ApiError(payload.error || `Request failed (${response.status})`, response.status, payload);
+  return payload as T;
+}
+
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const session = (await requireSupabase().auth.getSession()).data.session;
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(path, {
+    method: "POST",
+    body: form,
+    headers: session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {},
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Upload failed (${response.status})`);
+  return payload as T;
+}
+
+export async function publicApiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+  return payload as T;
+}
+
+export function isMissingRoute(error: unknown) {
+  return error instanceof ApiError && (error.status === 404 || error.status === 501);
+}

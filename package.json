@@ -13,7 +13,8 @@
     "test:phase1": "node --experimental-strip-types --test tests/phase1-search.test.ts",
     "test:phase2": "node --experimental-strip-types --test tests/phase2-rules-work.test.ts",
     "test:phase3": "node --experimental-strip-types --test tests/phase3-send-attachments.test.ts",
-    "test:phase4": "node --experimental-strip-types --test tests/phase4-trust-screening.test.ts"
+    "test:phase4": "node --experimental-strip-types --test tests/phase4-trust-screening.test.ts",
+    "test:ux": "node --experimental-strip-types --test tests/frontend-ux.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.879.0",

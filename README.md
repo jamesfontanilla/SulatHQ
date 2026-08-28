@@ -1,6 +1,6 @@
-# Parcel — private custom-domain mail
+# SulatHQ — custom-domain email
 
-Parcel is a small, personal webmail application for `jamesfontanilla.com`.
+SulatHQ is a self-service custom-domain email application: add a domain you own, verify it, create addresses, then send and receive mail from one account.
 
 ## Architecture
 
