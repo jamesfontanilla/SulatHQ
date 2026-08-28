@@ -17,6 +17,7 @@ import {
   buildReplyHeaders,
   canClaimJob,
   inboundIdempotencyKey,
+  mailboxAcceptsInbound,
   objectKeyAllowed,
   takeRateLimit,
 } from "../worker/platform/jobs.ts";
@@ -61,6 +62,13 @@ test("MFA start reuses a live pending factor and revokes extras on restart", () 
   assert.equal(mfaStatusFromFactors(1, 0, false), "enabled");
   assert.equal(mfaStatusFromFactors(0, 1, true), "expired");
   assert.equal(isPendingExpired("2026-08-28T11:00:00.000Z", now, 30 * 60 * 1000), true);
+});
+
+test("inbound delivery skips disabled mailboxes", () => {
+  assert.equal(mailboxAcceptsInbound({ status: "active", can_receive: true }), true);
+  assert.equal(mailboxAcceptsInbound({ status: "disabled", can_receive: true }), false);
+  assert.equal(mailboxAcceptsInbound({ status: "active", can_receive: false }), false);
+  assert.equal(mailboxAcceptsInbound(null), false);
 });
 
 test("inbound idempotency and object keys stay tenant-scoped", () => {

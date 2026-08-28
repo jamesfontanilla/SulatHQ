@@ -6,6 +6,10 @@ export type JobClaim = {
   attempts: number;
 };
 
+export function mailboxAcceptsInbound(mailbox: { status?: string; can_receive?: boolean } | null | undefined): boolean {
+  return Boolean(mailbox && mailbox.status !== "disabled" && mailbox.can_receive !== false);
+}
+
 export function canClaimJob(job: JobClaim, now = Date.now()): boolean {
   if (job.status === "succeeded" || job.status === "cancelled") return false;
   if (job.status === "queued" && Date.parse(job.available_at) <= now) return true;
