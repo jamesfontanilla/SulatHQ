@@ -1,10 +1,17 @@
 {
-  "name": "Parcel private mail",
-  "short_name": "Parcel",
+  "name": "SulatHQ",
+  "short_name": "SulatHQ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4f6fa",
-  "theme_color": "#2d5bff",
-  "description": "Private custom-domain mail for James Fontanilla",
-  "icons": []
+  "background_color": "#f3f4f1",
+  "theme_color": "#3156d8",
+  "description": "Self-service custom-domain email headquarters",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
 }
