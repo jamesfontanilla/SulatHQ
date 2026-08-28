@@ -11,5 +11,5 @@
     "types": ["@cloudflare/workers-types"],
     "noEmit": true
   },
-  "include": ["worker"]
+  "include": ["worker", "src/contracts/platform.ts"]
 }
