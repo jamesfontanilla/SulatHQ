@@ -3303,8 +3303,18 @@ function MailboxApp({ session }: { session: Session }) {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
   useEffect(() => {
-    document.title = documentTitle(onboardingOpen ? "Domain setup" : settingsOpen ? "Settings" : "Inbox");
-  }, [onboardingOpen, settingsOpen]);
+    document.title = documentTitle(
+      onboardingOpen
+        ? "Domain setup"
+        : settingsOpen
+          ? "Settings"
+          : view === "calendar"
+            ? "Calendar"
+            : view === "tasks"
+              ? "Work"
+              : "Inbox",
+    );
+  }, [onboardingOpen, settingsOpen, view]);
   useEffect(() => {
     if (
       settings.desktop_notifications &&
