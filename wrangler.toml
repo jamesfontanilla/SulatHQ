@@ -1,4 +1,4 @@
-name = "email-service"
+name = "james-email-service"
 main = "worker/index.ts"
 compatibility_date = "2026-08-25"
 compatibility_flags = ["nodejs_compat"]
@@ -15,3 +15,7 @@ crons = ["* * * * *"]
 
 [vars]
 APP_DOMAIN = "jamesfontanilla.com"
+
+[[routes]]
+pattern = "sulathq.jamesfontanilla.com"
+custom_domain = true
