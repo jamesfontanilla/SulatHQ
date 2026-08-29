@@ -49,6 +49,21 @@ export type RawDomain = Partial<DomainRecord> & {
   last_error?: string;
 };
 
+export function normalizeDomainInput(value: string): string {
+  return value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0].replace(/\.$/, "");
+}
+
+export function isValidDomainName(value: string): boolean {
+  const domain = normalizeDomainInput(value);
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)
+    && domain.length <= 253
+    && !domain.includes("..");
+}
+
+export function isValidLocalPart(value: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(value.trim().toLowerCase());
+}
+
 export function domainStatusLabel(status: DomainLifecycle) {
   if (status === "not_started") return "Not started";
   if (status === "verification_pending") return "Verification pending";

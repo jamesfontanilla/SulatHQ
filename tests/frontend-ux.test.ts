@@ -14,8 +14,11 @@ import {
   defaultDnsRecords,
   domainStatusExplanation,
   domainStatusLabel,
+  isValidDomainName,
+  isValidLocalPart,
   mailboxStatusView,
   mfaStatusLabel,
+  normalizeDomainInput,
   onboardingSteps,
 } from "../src/lib/domain-model.ts";
 import { createDebouncedRunner, draftStatusLabel } from "../src/lib/draft-status.ts";
@@ -39,6 +42,17 @@ test("parses product routes for mail, settings, and onboarding", () => {
   assert.equal(toAppPath({ kind: "auth", mode: "signup" }), "/signup");
   assert.equal(toAppPath({ kind: "auth", mode: "forgot" }), "/forgot");
   assert.equal(toAppPath({ kind: "mail", folder: "trash" }), "/app/trash");
+  assert.equal(toAppPath({ kind: "workspace", view: "calendar" }), "/app/calendar");
+  assert.equal(toAppPath({ kind: "workspace", view: "tasks" }), "/app/work");
+});
+
+test("domain and address inputs reject malformed values before submission", () => {
+  assert.equal(normalizeDomainInput("https://Example.COM/path"), "example.com");
+  assert.equal(isValidDomainName("sandbox.example.com"), true);
+  assert.equal(isValidDomainName("not a domain"), false);
+  assert.equal(isValidDomainName("foo..example.com"), false);
+  assert.equal(isValidLocalPart("hello-world"), true);
+  assert.equal(isValidLocalPart("bad part"), false);
 });
 
 test("recipient chips validate and avoid duplicates", () => {

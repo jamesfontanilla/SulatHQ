@@ -8,6 +8,8 @@ import {
   domainStatusExplanation,
   domainStatusLabel,
   formatCheckedAt,
+  isValidDomainName,
+  normalizeDomainInput,
   listDomains,
   onboardingSteps,
 } from "../lib/domains";
@@ -28,6 +30,10 @@ export function DomainSetup({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState("");
+  const normalizedDomain = normalizeDomainInput(domainName);
+  const domainError = domainName.trim() && !isValidDomainName(domainName)
+    ? "Enter a valid domain such as example.com"
+    : "";
   async function refresh() {
     setError("");
     try {
@@ -120,17 +126,22 @@ export function DomainSetup({
         <label>
           Domain name
           <input
+            name="domain"
+            type="text"
             value={domainName}
             onChange={(event) => setDomainName(event.target.value)}
             placeholder="example.com"
             autoComplete="off"
             spellCheck={false}
+            aria-invalid={Boolean(domainError)}
+            aria-describedby={domainError ? "domain-name-error" : undefined}
           />
         </label>
-        <button className="primary-button" disabled={busy || !domainName.trim()}>
+        <button className="primary-button" disabled={busy || !normalizedDomain || Boolean(domainError)}>
           {busy ? "Working…" : "Add domain"}
         </button>
       </form>
+      {domainError && <div id="domain-name-error" className="form-error" role="alert">{domainError}</div>}
       {error && <div className="form-error">{error}</div>}
       {notice && <div className="form-notice">{notice}</div>}
       {domains.length === 0 && (

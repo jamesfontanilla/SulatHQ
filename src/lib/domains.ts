@@ -3,6 +3,8 @@ import {
   adaptDomain,
   defaultDnsRecords,
   DomainRecord,
+  isValidDomainName,
+  normalizeDomainInput,
   RawDomain,
 } from "./domain-model";
 
@@ -26,8 +28,8 @@ export async function listDomains(): Promise<{ domains: DomainRecord[]; stubbed:
 }
 
 export async function createDomain(domainName: string): Promise<{ domain: DomainRecord; stubbed: boolean }> {
-  const normalized = domainName.trim().toLowerCase().replace(/\.$/, "");
-  if (!/^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) {
+  const normalized = normalizeDomainInput(domainName);
+  if (!isValidDomainName(normalized)) {
     throw new Error("Enter a domain you own, such as example.com");
   }
   try {

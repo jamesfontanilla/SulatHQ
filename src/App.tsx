@@ -65,7 +65,7 @@ import { PRODUCT_MARK, PRODUCT_NAME, PRODUCT_TAGLINE, documentTitle } from "./li
 import { parseAppPath, replaceAppPath, SettingsTab } from "./lib/routes";
 import { parseRecipientList, serializeRecipients } from "./lib/recipients";
 import { createDebouncedRunner, draftStatusLabel, DraftUiState } from "./lib/draft-status";
-import { mailboxStatusView, mfaStatusLabel } from "./lib/domains";
+import { DomainRecord, isValidLocalPart, listDomains, mailboxStatusView, mfaStatusLabel } from "./lib/domains";
 import { DomainSetup } from "./components/DomainSetup";
 import { RecipientField } from "./components/RecipientField";
 import { MessageListSkeleton, ReaderSkeleton } from "./components/Skeletons";
@@ -793,6 +793,10 @@ function Compose({
   }
   async function send(event?: FormEvent) {
     event?.preventDefault();
+    if (!fromAddress) {
+      setError("Add an active sending address in Settings → Mailboxes first.");
+      return;
+    }
     if (toChips.some((chip) => !chip.valid) || !toChips.length) {
       setError("Add at least one valid recipient.");
       return;
@@ -1079,7 +1083,7 @@ function Compose({
                 Retry save
               </button>
             )}
-            <button className="primary-button" disabled={busy || uploading > 0}>
+            <button className="primary-button" disabled={busy || uploading > 0 || !fromAddress || !toChips.length || toChips.some((chip) => !chip.valid)}>
               <Send size={15} />{" "}
               {busy ? "Sending…" : scheduledAt ? "Schedule send" : "Send"}
             </button>
@@ -1138,6 +1142,7 @@ function SettingsPanel({
   settings,
   folders,
   labels,
+  domains,
   mailboxes,
   rules,
   senderPolicies,
@@ -1152,6 +1157,7 @@ function SettingsPanel({
   settings: AppSettings;
   folders: CustomFolder[];
   labels: Label[];
+  domains: DomainRecord[];
   mailboxes: Mailbox[];
   rules: Rule[];
   senderPolicies: SenderPolicy[];
@@ -1197,8 +1203,11 @@ function SettingsPanel({
   const [ruleBusy, setRuleBusy] = useState(false);
   const [signatureName, setSignatureName] = useState("");
   const [signatureText, setSignatureText] = useState("");
-  const [mailboxAddress, setMailboxAddress] = useState("");
+  const [mailboxDomainId, setMailboxDomainId] = useState("");
+  const [mailboxLocalPart, setMailboxLocalPart] = useState("");
   const [mailboxName, setMailboxName] = useState("");
+  const [mailboxBusy, setMailboxBusy] = useState(false);
+  const [mailboxError, setMailboxError] = useState("");
   const [autoReply, setAutoReply] = useState<AutoReply>({
     enabled: false,
     subject: "Automatic reply",
@@ -1552,19 +1561,44 @@ function SettingsPanel({
     setNotice("Signature saved");
     onChanged();
   }
+  const eligibleDomains = domains.filter(
+    (domain) => domain.verification_status === "verified" && domain.receiving_status !== "not_started",
+  );
+  const selectedMailboxDomainId = mailboxDomainId || eligibleDomains[0]?.id || "";
+  const normalizedMailboxLocalPart = mailboxLocalPart.trim().toLowerCase();
+  const mailboxLocalPartError = mailboxLocalPart.trim() && !isValidLocalPart(mailboxLocalPart)
+    ? "Use letters, numbers, dots, hyphens, or underscores."
+    : "";
   async function createMailbox() {
-    if (!mailboxAddress.trim()) return;
-    await apiFetch("/api/mailboxes", {
-      method: "POST",
-      body: JSON.stringify({
-        address: mailboxAddress,
-        displayName: mailboxName || mailboxAddress.split("@")[0],
-      }),
-    });
-    setMailboxAddress("");
-    setMailboxName("");
-    setNotice("Mailbox added");
-    onChanged();
+    if (!selectedMailboxDomainId) {
+      setMailboxError("Verify a domain and configure receiving before creating an address.");
+      return;
+    }
+    if (!normalizedMailboxLocalPart || !isValidLocalPart(normalizedMailboxLocalPart)) {
+      setMailboxError("Enter a valid local part such as hello.");
+      return;
+    }
+    setMailboxBusy(true);
+    setMailboxError("");
+    setNotice("");
+    try {
+      await apiFetch("/api/mailboxes", {
+        method: "POST",
+        body: JSON.stringify({
+          domainId: selectedMailboxDomainId,
+          localPart: normalizedMailboxLocalPart,
+          displayName: mailboxName.trim() || normalizedMailboxLocalPart,
+        }),
+      });
+      setMailboxLocalPart("");
+      setMailboxName("");
+      setNotice("Address added");
+      onChanged();
+    } catch (createError) {
+      setMailboxError(createError instanceof Error ? createError.message : "Could not add that address");
+    } finally {
+      setMailboxBusy(false);
+    }
   }
   async function updateMailbox(mailbox: Mailbox, patch: JsonSettings) {
     await apiFetch(`/api/mailboxes/${mailbox.id}`, {
@@ -2514,25 +2548,65 @@ function SettingsPanel({
             <div className="setting-card">
               <h3>Add an address</h3>
               <p>
-                Create an address on a domain you already verified. An alias is not a separate mailbox unless it has its own storage.
+                Create an address on a verified domain. An alias is not a separate mailbox unless it has its own storage.
               </p>
+              {eligibleDomains.length > 0 ? (
+                <label>
+                  Domain
+                  <select
+                    name="mailbox-domain"
+                    value={selectedMailboxDomainId}
+                    onChange={(event) => setMailboxDomainId(event.target.value)}
+                  >
+                    {eligibleDomains.map((domain) => (
+                      <option value={domain.id} key={domain.id}>
+                        {domain.domain_name}{domain.receiving_status === "active" ? " · ready to receive" : " · receiving setup needed"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <div className="form-notice" role="status">
+                  Verify a domain and configure receiving before creating an address.
+                </div>
+              )}
               <input
+                name="mailbox-local-part"
+                type="text"
+                value={mailboxLocalPart}
+                onChange={(event) => {
+                  setMailboxLocalPart(event.target.value);
+                  setMailboxError("");
+                }}
+                placeholder="hello"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Address name"
+                aria-invalid={Boolean(mailboxLocalPartError)}
+                aria-describedby={mailboxLocalPartError ? "mailbox-local-part-error" : undefined}
+              />
+              {mailboxLocalPartError && <small id="mailbox-local-part-error" className="field-help form-error">{mailboxLocalPartError}</small>}
+              <small className="field-help">
+                {selectedMailboxDomainId ? `Your address will be ${normalizedMailboxLocalPart || "hello"}@${eligibleDomains.find((domain) => domain.id === selectedMailboxDomainId)?.domain_name || "your-domain.com"}.` : "Add a verified domain first."}
+              </small>
+              <input
+                name="mailbox-display-name"
+                type="text"
                 value={mailboxName}
                 onChange={(event) => setMailboxName(event.target.value)}
                 placeholder="Display name"
-              />
-              <input
-                type="email"
-                value={mailboxAddress}
-                onChange={(event) => setMailboxAddress(event.target.value)}
-                placeholder="name@your-domain.com"
+                autoComplete="name"
+                aria-label="Display name"
               />
               <button
+                type="button"
                 className="secondary-button"
                 onClick={() => void createMailbox()}
+                disabled={mailboxBusy || !selectedMailboxDomainId || !normalizedMailboxLocalPart || Boolean(mailboxLocalPartError)}
               >
-                <Plus size={15} /> Add mailbox
+                <Plus size={15} /> {mailboxBusy ? "Adding…" : "Add address"}
               </button>
+              {mailboxError && <div className="form-error" role="alert">{mailboxError}</div>}
             </div>
             <div className="setting-card">
               <h3>Addresses</h3>
@@ -2859,6 +2933,7 @@ function MailboxApp({ session }: { session: Session }) {
   const [view, setView] = useState<"mail" | "calendar" | "tasks">("mail");
   const [folder, setFolder] = useState<ViewKey>("inbox");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [domains, setDomains] = useState<DomainRecord[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [folders, setFolders] = useState<CustomFolder[]>([]);
@@ -2919,7 +2994,7 @@ function MailboxApp({ session }: { session: Session }) {
   const previousMessageIds = useRef<Set<string>>(new Set());
   const loadMeta = useCallback(async () => {
     try {
-      const [addresses, contactRows, customFolders, labelRows, signatureRows, ruleRows, policyRows, preference, savedRows] =
+      const [addresses, contactRows, customFolders, labelRows, signatureRows, ruleRows, policyRows, preference, savedRows, domainResult] =
         await Promise.all([
           apiFetch<Mailbox[]>("/api/mailboxes"),
           apiFetch<Contact[]>("/api/contacts"),
@@ -2930,8 +3005,10 @@ function MailboxApp({ session }: { session: Session }) {
           apiFetch<SenderPolicy[]>("/api/sender-policies").catch(() => []),
           apiFetch<AppSettings>("/api/settings"),
           apiFetch<SavedSearch[]>("/api/saved-searches?counts=true").catch(() => []),
+          listDomains(),
         ]);
       setMailboxes(addresses);
+      setDomains(domainResult.domains);
       setContacts(contactRows);
       setFolders(customFolders);
       setLabels(labelRows);
@@ -3024,6 +3101,17 @@ function MailboxApp({ session }: { session: Session }) {
     if (target === "inbox" || target === "sent" || target === "drafts" || target === "archive" || target === "trash" || target === "spam") {
       replaceAppPath({ kind: "mail", folder: target });
     }
+  }
+  function openWorkspace(target: "calendar" | "tasks") {
+    detailRequestRef.current += 1;
+    setView(target);
+    setSelected(null);
+    setSelectedId(null);
+    setThreadMessages([]);
+    setDetailLoading(false);
+    clearListSelection();
+    setMobileNav(false);
+    replaceAppPath({ kind: "workspace", view: target });
   }
   function toggleMessageSelection(id: string) {
     if (selectAllResults) {
@@ -3198,6 +3286,17 @@ function MailboxApp({ session }: { session: Session }) {
       } else if (next.kind === "onboarding") {
         setOnboardingOpen(true);
         setSettingsOpen(false);
+      } else if (next.kind === "workspace") {
+        setView(next.view === "calendar" ? "calendar" : "tasks");
+        setOnboardingOpen(false);
+        setSettingsOpen(false);
+      } else if (next.kind === "mail") {
+        setView("mail");
+        setOnboardingOpen(false);
+        setSettingsOpen(false);
+        if (next.folder !== "search" && !next.folder.startsWith("custom")) {
+          setFolder(next.folder as ViewKey);
+        }
       }
     }
     window.addEventListener("hashchange", onHash);
@@ -3739,14 +3838,14 @@ function MailboxApp({ session }: { session: Session }) {
             className={
               view === "calendar" ? "active folder-link" : "folder-link"
             }
-            onClick={() => setView("calendar")}
+            onClick={() => openWorkspace("calendar")}
           >
             <CalendarDays size={17} />
             <span>Calendar</span>
           </button>
           <button
             className={view === "tasks" ? "active folder-link" : "folder-link"}
-            onClick={() => setView("tasks")}
+            onClick={() => openWorkspace("tasks")}
           >
             <Briefcase size={17} />
             <span>Work</span>
@@ -4461,6 +4560,7 @@ function MailboxApp({ session }: { session: Session }) {
           settings={settings}
           folders={folders}
           labels={labels}
+          domains={domains}
           mailboxes={mailboxes}
           rules={rules}
           senderPolicies={senderPolicies}

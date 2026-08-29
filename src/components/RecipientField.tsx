@@ -47,8 +47,13 @@ export function RecipientField({
           </span>
         ))}
         <input
+          name={label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
+          type="email"
           value={draft}
           required={required && chips.length === 0}
+          autoComplete="email"
+          inputMode="email"
+          spellCheck={false}
           aria-label={label}
           placeholder={chips.length ? "" : placeholder}
           onChange={(event) => setDraft(event.target.value)}
