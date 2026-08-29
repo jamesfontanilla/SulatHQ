@@ -956,8 +956,6 @@ html, body { max-width: 100%; overflow-x: hidden; }
 @media (min-width: 721px) {
   .workspace-view { min-height: 0; height: 100%; overflow: auto; }
 }
-@media (max-width: 1024px) {
-
 /* Skeuomorphic correspondence system
    Physical cues are reserved for interactive and mail-related surfaces so the
    application keeps the calm, credible character defined in the UX spec. */
@@ -1319,7 +1317,7 @@ select,
 @media (prefers-reduced-motion: reduce) {
   .google-auth-button { transition: none; }
 }
-@media (max-width: 860px) {
+@media (max-width: 1024px) {
   .auth-shell {
     display: flex;
     flex-direction: column;
