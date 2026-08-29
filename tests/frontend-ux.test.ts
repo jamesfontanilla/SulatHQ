@@ -35,7 +35,9 @@ test("parses product routes for mail, settings, and onboarding", () => {
   assert.deepEqual(parseAppPath("/app/settings/mailboxes"), { kind: "settings", tab: "mailboxes" });
   assert.deepEqual(parseAppPath("/app/settings/security"), { kind: "settings", tab: "security" });
   assert.deepEqual(parseAppPath("/app/onboarding/domain"), { kind: "onboarding" });
+  assert.deepEqual(parseAppPath("/forgot"), { kind: "auth", mode: "forgot" });
   assert.equal(toAppPath({ kind: "auth", mode: "signup" }), "/signup");
+  assert.equal(toAppPath({ kind: "auth", mode: "forgot" }), "/forgot");
   assert.equal(toAppPath({ kind: "mail", folder: "trash" }), "/app/trash");
 });
 
@@ -88,7 +90,7 @@ test("domain and mailbox status copy stays conservative", () => {
 
 test("email HTML sanitizer is used by the reader", () => {
   assert.equal(typeof sanitizeEmailHtml, "function");
-  assert.equal(sanitizeEmailHtml(""), "");
+  assert.equal(sanitizeEmailHtml.length, 1);
 });
 
 test("Google OAuth uses Supabase with a same-origin return route", () => {

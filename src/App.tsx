@@ -521,9 +521,11 @@ function AuthScreen({ initialMode = "signin" }: { initialMode?: "signin" | "sign
           </button>
         </>}
         {mode === "signin" && <button className="text-button auth-link" onClick={() => { setMode("forgot"); setError(""); setNotice(""); }}>Forgot your password?</button>}
-        <button className="text-button" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setNotice(""); }}>
-          {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Create one"}
-        </button>
+        {mode !== "forgot" && (
+          <button className="text-button" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setNotice(""); }}>
+            {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Create one"}
+          </button>
+        )}
         {mode === "forgot" && <button className="text-button" onClick={() => { setMode("signin"); setError(""); setNotice(""); }}>Back to sign in</button>}
       </section>
       <aside className="auth-aside">
