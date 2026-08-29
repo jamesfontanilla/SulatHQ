@@ -1267,6 +1267,57 @@ select,
   .message-row.selected,
   .message-row.bulk-selected { transform: none; }
 }
+
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 14px;
+  color: #8b806f;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #d8d0c2;
+  box-shadow: 0 1px rgba(255,255,255,.8);
+}
+
+.google-auth-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cfc5b5;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fffefa, #eee8dd);
+  color: #354052;
+  box-shadow: inset 0 1px #fff, 0 3px 0 #b8ad9b, 0 7px 13px rgba(60,49,34,.12);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.google-auth-button svg { width: 18px; height: 18px; }
+.google-auth-button:hover { border-color: #b6aa98; transform: translateY(-1px); }
+.google-auth-button:active { box-shadow: inset 0 2px 5px rgba(60,49,34,.14), 0 1px 0 #b8ad9b; transform: translateY(2px); }
+.google-auth-button:disabled { cursor: wait; opacity: .65; transform: none; }
+.google-auth-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.theme-dark .oauth-divider { color: var(--muted); }
+.theme-dark .oauth-divider::before,
+.theme-dark .oauth-divider::after { background: var(--line); box-shadow: none; }
+.theme-dark .google-auth-button { border-color: #465048; background: linear-gradient(180deg, #303832, #252b27); color: var(--ink); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 3px 0 #141815, 0 7px 13px rgba(0,0,0,.22); }
+
+@media (prefers-reduced-motion: reduce) {
+  .google-auth-button { transition: none; }
+}
 @media (max-width: 860px) {
   .auth-shell {
     display: flex;

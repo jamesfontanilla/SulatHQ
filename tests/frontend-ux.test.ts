@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { documentTitle, PRODUCT_NAME } from "../src/lib/brand.ts";
 import { parseAppPath, toAppPath } from "../src/lib/routes.ts";
 import {
@@ -88,4 +89,11 @@ test("domain and mailbox status copy stays conservative", () => {
 test("email HTML sanitizer is used by the reader", () => {
   assert.equal(typeof sanitizeEmailHtml, "function");
   assert.equal(sanitizeEmailHtml(""), "");
+});
+
+test("Google OAuth uses Supabase with a same-origin return route", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /signInWithOAuth\(\{/);
+  assert.match(app, /provider: "google"/);
+  assert.match(app, /redirectTo: `\$\{window\.location\.origin\}\/login`/);
 });
