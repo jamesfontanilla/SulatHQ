@@ -957,6 +957,369 @@ html, body { max-width: 100%; overflow-x: hidden; }
   .workspace-view { min-height: 0; height: 100%; overflow: auto; }
 }
 @media (max-width: 1024px) {
+
+/* Skeuomorphic correspondence system
+   Physical cues are reserved for interactive and mail-related surfaces so the
+   application keeps the calm, credible character defined in the UX spec. */
+:root {
+  --desk: #d9d1c2;
+  --desk-dark: #c8bead;
+  --paper: #fffdf7;
+  --paper-muted: #f7f2e8;
+  --paper-edge: #d8d0c2;
+  --paper-shadow: rgba(60, 49, 34, .16);
+  --press-edge: #18379d;
+  --inset-shadow: rgba(62, 52, 38, .12);
+}
+
+body {
+  background-color: var(--desk);
+  background-image:
+    linear-gradient(90deg, rgba(255,255,255,.14), transparent 22%, rgba(91,72,47,.04) 68%, transparent),
+    repeating-linear-gradient(0deg, rgba(91,72,47,.018) 0 1px, transparent 1px 4px);
+}
+
+.app-shell {
+  background: color-mix(in srgb, var(--canvas) 88%, var(--desk));
+  box-shadow: inset 0 1px rgba(255,255,255,.72);
+}
+
+.sidebar {
+  border-right-color: #c9c0b1;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.46), transparent 22%),
+    linear-gradient(180deg, #eee8dc, #e4dccd);
+  box-shadow: inset -1px 0 rgba(91,72,47,.08), 5px 0 16px rgba(60,49,34,.07);
+}
+
+.brand-mark,
+.mini-brand span {
+  border: 1px solid #1f46c7;
+  background: linear-gradient(145deg, #416cff, #244bd2);
+  box-shadow: inset 0 1px rgba(255,255,255,.35), 0 3px 0 #183aa8, 0 7px 13px rgba(35,63,145,.22);
+  text-shadow: 0 1px rgba(0,0,0,.22);
+}
+
+.compose-button,
+.primary-button {
+  border: 1px solid #2448bd;
+  background: linear-gradient(180deg, #456cff, #2d55db);
+  box-shadow: inset 0 1px rgba(255,255,255,.34), 0 3px 0 var(--press-edge), 0 7px 13px rgba(35,63,145,.2);
+  text-shadow: 0 1px rgba(0,0,0,.2);
+  transform: translateY(0);
+}
+
+.compose-button:hover,
+.primary-button:hover {
+  background: linear-gradient(180deg, #5076ff, #345de4);
+  transform: translateY(-1px);
+}
+
+.compose-button:active,
+.primary-button:active {
+  box-shadow: inset 0 2px 5px rgba(20,38,102,.3), 0 1px 0 var(--press-edge);
+  transform: translateY(2px);
+}
+
+.secondary-button,
+.icon-button {
+  border: 1px solid #d3cabc;
+  background: linear-gradient(180deg, #fffefa, #eee8dd);
+  box-shadow: inset 0 1px #fff, 0 2px 3px rgba(60,49,34,.11);
+}
+
+.secondary-button:hover,
+.icon-button:hover {
+  border-color: #bfb3a1;
+  background: linear-gradient(180deg, #fff, #f1eadf);
+}
+
+.secondary-button:active,
+.icon-button:active {
+  box-shadow: inset 0 2px 4px var(--inset-shadow);
+  transform: translateY(1px);
+}
+
+input,
+textarea,
+select,
+.search-box {
+  border-color: #d2c9ba;
+  background: #fffefa;
+  box-shadow: inset 0 1px 3px rgba(61,50,34,.09), 0 1px rgba(255,255,255,.8);
+}
+
+.message-column {
+  border-right-color: #cfc5b6;
+  background: #e8e1d5;
+  box-shadow: inset -1px 0 rgba(91,72,47,.06);
+}
+
+.message-list {
+  gap: 5px;
+  padding-inline: 12px;
+}
+
+.message-row {
+  position: relative;
+  overflow: visible;
+  border: 1px solid var(--paper-edge);
+  border-left: 4px solid #c9bda9;
+  border-radius: 3px 8px 8px 3px;
+  background:
+    linear-gradient(rgba(255,253,247,.96), rgba(250,246,238,.96)),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(91,72,47,.025) 3px 4px);
+  box-shadow: 0 1px 1px rgba(60,49,34,.09), 0 3px 7px rgba(60,49,34,.06);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.message-row:hover {
+  z-index: 1;
+  border-radius: 3px 8px 8px 3px;
+  border-color: #c8bdac;
+  border-left-color: #8c9fdc;
+  background: var(--paper);
+  box-shadow: 0 2px 2px rgba(60,49,34,.08), 0 7px 15px var(--paper-shadow);
+  transform: translateY(-2px) rotate(-.08deg);
+}
+
+.message-row.selected,
+.message-row.bulk-selected {
+  z-index: 2;
+  border-radius: 3px 8px 8px 3px;
+  border-color: #9babe0;
+  border-left-color: var(--accent);
+  background: linear-gradient(100deg, #edf2ff, var(--paper) 28%);
+  box-shadow: 0 2px 2px rgba(45,73,159,.09), 0 8px 18px rgba(45,73,159,.16);
+  transform: translateY(-2px);
+}
+
+.message-row.unread::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #1f47be;
+  border-radius: 50%;
+  background: #416cff;
+  box-shadow: inset 0 1px rgba(255,255,255,.45), 0 1px 2px rgba(30,57,145,.25);
+}
+
+.reading-pane,
+.workspace-view {
+  background:
+    linear-gradient(rgba(255,253,247,.965), rgba(255,253,247,.965)),
+    repeating-linear-gradient(0deg, transparent 0 4px, rgba(91,72,47,.025) 4px 5px);
+  box-shadow: inset 7px 0 17px rgba(60,49,34,.045);
+}
+
+.message-detail {
+  margin: 24px auto;
+  border: 1px solid var(--paper-edge);
+  border-radius: 4px;
+  background: var(--paper);
+  box-shadow: 0 2px 2px rgba(60,49,34,.08), 0 16px 35px var(--paper-shadow);
+}
+
+.sender-line {
+  border-color: #ded6c9;
+}
+
+.compose-overlay,
+.modal-backdrop {
+  background: rgba(59,50,38,.42);
+  backdrop-filter: blur(4px) saturate(.8);
+}
+
+.compose-card,
+.settings-panel {
+  border-color: #c9beac;
+  border-radius: 7px;
+  background:
+    linear-gradient(rgba(255,253,247,.97), rgba(255,253,247,.97)),
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(91,72,47,.025) 3px 4px);
+  box-shadow: 0 3px 2px rgba(50,40,27,.12), 0 28px 70px rgba(50,40,27,.28);
+}
+
+.compose-head {
+  border-bottom-color: #d9d0c1;
+  background: linear-gradient(180deg, #ece5d8, #ddd3c2);
+  box-shadow: inset 0 1px rgba(255,255,255,.75), 0 2px 5px rgba(60,49,34,.09);
+}
+
+.compose-editor {
+  background: var(--paper);
+  box-shadow: inset 0 1px 3px rgba(60,49,34,.08);
+}
+
+.attachments a,
+.attachments .attachment-link {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #d4cab9;
+  border-radius: 4px;
+  background: var(--paper);
+  box-shadow: 0 2px 4px rgba(60,49,34,.1);
+}
+
+.attachments a::after,
+.attachments .attachment-link::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(225deg, #e5ddcf 48%, #cfc4b2 49% 53%, var(--paper) 54%);
+}
+
+.setting-card,
+.domain-card,
+.event-card,
+.task-card,
+.thread-stack button {
+  border-color: #d5ccbd;
+  background: linear-gradient(180deg, #fffefa, #f6f1e8);
+  box-shadow: inset 0 1px rgba(255,255,255,.9), 0 3px 7px rgba(60,49,34,.08);
+}
+
+.domain-status,
+.message-status {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  background: transparent;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  transform: rotate(-1deg);
+}
+
+.form-notice,
+.form-error,
+.signal-box {
+  border: 1px solid currentColor;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.5);
+}
+
+.theme-dark {
+  --desk: #111411;
+  --desk-dark: #0b0d0b;
+  --paper: #242a26;
+  --paper-muted: #202520;
+  --paper-edge: #465048;
+  --paper-shadow: rgba(0,0,0,.32);
+  --press-edge: #10266f;
+  --inset-shadow: rgba(0,0,0,.35);
+}
+
+.theme-dark .sidebar {
+  border-right-color: #3c453e;
+  background: linear-gradient(180deg, #272e29, #1c221e);
+}
+
+.theme-dark .message-column { background: #181d1a; }
+.theme-dark .message-row,
+.theme-dark .message-row:hover {
+  border-color: var(--paper-edge);
+  border-left-color: #59645c;
+  background: linear-gradient(180deg, #282f2a, #222823);
+}
+.theme-dark .message-row.selected,
+.theme-dark .message-row.bulk-selected {
+  border-color: #6574aa;
+  border-left-color: #718cff;
+  background: linear-gradient(100deg, #28345b, #242a26 35%);
+}
+.theme-dark .reading-pane,
+.theme-dark .workspace-view,
+.theme-dark .compose-card,
+.theme-dark .settings-panel { background: var(--paper); }
+.theme-dark .compose-head { background: linear-gradient(180deg, #323a34, #272e29); }
+.theme-dark input,
+.theme-dark textarea,
+.theme-dark select,
+.theme-dark .search-box { border-color: #465048; background: #1b201c; }
+.theme-dark .secondary-button,
+.theme-dark .icon-button,
+.theme-dark .attachments a,
+.theme-dark .attachments .attachment-link,
+.theme-dark .setting-card,
+.theme-dark .domain-card,
+.theme-dark .event-card,
+.theme-dark .task-card,
+.theme-dark .thread-stack button { border-color: #465048; background: linear-gradient(180deg, #2b322d, #222823); }
+
+@media (max-width: 720px) {
+  .message-list { gap: 3px; padding-inline: 7px; }
+  .message-detail { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .compose-card { background: var(--paper); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-row,
+  .primary-button,
+  .secondary-button,
+  .compose-button,
+  .icon-button { transition: none; }
+  .message-row:hover,
+  .message-row.selected,
+  .message-row.bulk-selected { transform: none; }
+}
+
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 14px;
+  color: #8b806f;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #d8d0c2;
+  box-shadow: 0 1px rgba(255,255,255,.8);
+}
+
+.google-auth-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cfc5b5;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fffefa, #eee8dd);
+  color: #354052;
+  box-shadow: inset 0 1px #fff, 0 3px 0 #b8ad9b, 0 7px 13px rgba(60,49,34,.12);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.google-auth-button svg { width: 18px; height: 18px; }
+.google-auth-button:hover { border-color: #b6aa98; transform: translateY(-1px); }
+.google-auth-button:active { box-shadow: inset 0 2px 5px rgba(60,49,34,.14), 0 1px 0 #b8ad9b; transform: translateY(2px); }
+.google-auth-button:disabled { cursor: wait; opacity: .65; transform: none; }
+.google-auth-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.theme-dark .oauth-divider { color: var(--muted); }
+.theme-dark .oauth-divider::before,
+.theme-dark .oauth-divider::after { background: var(--line); box-shadow: none; }
+.theme-dark .google-auth-button { border-color: #465048; background: linear-gradient(180deg, #303832, #252b27); color: var(--ink); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 3px 0 #141815, 0 7px 13px rgba(0,0,0,.22); }
+
+@media (prefers-reduced-motion: reduce) {
+  .google-auth-button { transition: none; }
+}
+@media (max-width: 860px) {
   .auth-shell {
     display: flex;
     flex-direction: column;
@@ -973,4 +1336,3 @@ html, body { max-width: 100%; overflow-x: hidden; }
   .auth-card h1 { font-size: clamp(28px, 8vw, 40px); }
   .auth-aside { max-width: 470px; }
 }
-
