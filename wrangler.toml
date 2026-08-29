@@ -15,6 +15,7 @@ crons = ["* * * * *"]
 
 [vars]
 APP_DOMAIN = "jamesfontanilla.com"
+SUPABASE_URL = "https://iketybhztvmujhgdmriu.supabase.co"
 
 [[routes]]
 pattern = "sulathq.jamesfontanilla.com"
