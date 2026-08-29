@@ -3614,7 +3614,7 @@ function MailboxApp({ session }: { session: Session }) {
   }
   function closeSettings() {
     setSettingsOpen(false);
-    replaceAppPath({ kind: "mail", folder: "inbox" });
+    openMailFolder("inbox");
   }
   function openCompose(seed?: ComposeSeed) {
     setComposeSeed(seed);
@@ -4545,14 +4545,14 @@ function MailboxApp({ session }: { session: Session }) {
         />
       )}
       {onboardingOpen && (
-        <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) { setOnboardingOpen(false); replaceAppPath({ kind: "mail", folder: "inbox" }); } }}>
+        <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) { setOnboardingOpen(false); openMailFolder("inbox"); } }}>
           <section className="settings-panel onboarding-panel" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
             <div className="panel-title">
               <div>
                 <p className="eyebrow">{PRODUCT_NAME}</p>
                 <h2 id="onboarding-title">Set up your domain</h2>
               </div>
-              <button className="icon-button" onClick={() => { setOnboardingOpen(false); replaceAppPath({ kind: "mail", folder: "inbox" }); }} aria-label="Close domain setup"><X size={18} /></button>
+              <button className="icon-button" onClick={() => { setOnboardingOpen(false); openMailFolder("inbox"); }} aria-label="Close domain setup"><X size={18} /></button>
             </div>
             <DomainSetup
               mailboxCount={mailboxes.length}
